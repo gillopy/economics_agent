@@ -2,6 +2,7 @@ import os
 import argparse
 from typing import Optional
 from dotenv import load_dotenv
+from tabulate import tabulate
 
 from .agents.research_agent import ResearchAgent
 from .models.ingestion import DataIngestion
@@ -52,13 +53,30 @@ def main():
     if args.command == "research":
         # Realizar investigación
         print(f"Investigando: {args.query}")
-        response = agent.research(args.query)
-        _print_research_response(response)
-        
-        # Guardar resultados si se especificó un archivo
-        if args.output:
-            _save_research_results(response, args.output)
-            print(f"Resultados guardados en {args.output}")
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+        query = args.query
+        raw_response = agent_executor.invoke({"query": query})
+
+        try:
+            output_text = raw_response.get("output")
+            # Extraer el JSON del bloque de código si está presente
+            if output_text.startswith("```json"):
+                json_content = output_text.split("```json\\n")[1].split("\\n```")[0]
+            elif output_text.startswith("```"):
+                # Manejar caso genérico ``` ... ```
+                json_content = output_text.split("```")[1]
+            else:
+                json_content = output_text # Asumir que es JSON directo si no hay marcadores
+
+            structured_response = parser.parse(json_content)
+            _print_research_response(structured_response) # Llamar a la función de impresión estructurada
+            
+            # Guardar resultados si se especificó un archivo
+            if args.output:
+                _save_research_results(structured_response, args.output)
+                print(f"Resultados guardados en {args.output}")
+        except Exception as e:
+            print("Error parsing response", e, "\nRaw Response - ", raw_response)
     
     elif args.command == "chat":
         # Cargar memoria si se especificó
@@ -170,95 +188,169 @@ def main():
         parser.print_help()
 
 def _print_research_response(response: ResearchResponse) -> None:
-    """Imprime una respuesta de investigación de forma legible"""
-    print("\n" + "=" * 50)
-    print(f"TEMA: {response.topic}")
-    print("=" * 50)
-    print("\nRESUMEN:")
+    """Imprime una respuesta de investigación de forma estructurada"""
+    # Imprimir encabezado
+    print("\n" + "=" * 80)
+    print(f"📚 INVESTIGACIÓN: {response.topic}")
+    print("=" * 80)
+    
+    # Imprimir resumen
+    print("\n📝 RESUMEN:")
+    print("-" * 80)
     print(response.summary)
+    print("-" * 80)
     
+    # Imprimir fuentes en una tabla
     if response.sources:
-        print("\nFUENTES:")
+        print("\n📚 FUENTES CONSULTADAS:")
+        print("-" * 80)
+        sources_data = []
         for source in response.sources:
-            print(f"- {source.title or source.url or 'Fuente sin título'}")
+            sources_data.append([
+                source.title or "Sin título",
+                source.type,
+                source.url or "N/A"
+            ])
+        print(tabulate(
+            sources_data,
+            headers=["Título", "Tipo", "URL"],
+            tablefmt="grid"
+        ))
     
+    # Imprimir herramientas utilizadas
     if response.tools_used:
-        print("\nHERRAMIENTAS UTILIZADAS:")
-        for tool in response.tools_used:
-            print(f"- {tool}")
+        print("\n🛠️ HERRAMIENTAS UTILIZADAS:")
+        print("-" * 80)
+        for i, tool in enumerate(response.tools_used, 1):
+            print(f"{i}. {tool}")
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 80)
 
 def _save_research_results(response: ResearchResponse, file_path: str) -> None:
-    """Guarda los resultados de investigación en un archivo"""
+    """Guarda los resultados de investigación en un archivo de forma estructurada"""
     with open(file_path, 'w', encoding='utf-8') as f:
-        f.write("=" * 50 + "\n")
-        f.write(f"TEMA: {response.topic}\n")
-        f.write("=" * 50 + "\n\n")
-        f.write("RESUMEN:\n")
-        f.write(response.summary + "\n\n")
+        # Escribir encabezado
+        f.write("=" * 80 + "\n")
+        f.write(f"📚 INVESTIGACIÓN: {response.topic}\n")
+        f.write("=" * 80 + "\n\n")
         
+        # Escribir resumen
+        f.write("📝 RESUMEN:\n")
+        f.write("-" * 80 + "\n")
+        f.write(response.summary + "\n")
+        f.write("-" * 80 + "\n\n")
+        
+        # Escribir fuentes en una tabla
         if response.sources:
-            f.write("FUENTES:\n")
+            f.write("📚 FUENTES CONSULTADAS:\n")
+            f.write("-" * 80 + "\n")
+            sources_data = []
             for source in response.sources:
-                f.write(f"- {source.title or source.url or 'Fuente sin título'}\n")
-            f.write("\n")
+                sources_data.append([
+                    source.title or "Sin título",
+                    source.type,
+                    source.url or "N/A"
+                ])
+            f.write(tabulate(
+                sources_data,
+                headers=["Título", "Tipo", "URL"],
+                tablefmt="grid"
+            ))
+            f.write("\n\n")
         
+        # Escribir herramientas
         if response.tools_used:
-            f.write("HERRAMIENTAS UTILIZADAS:\n")
-            for tool in response.tools_used:
-                f.write(f"- {tool}\n")
+            f.write("🛠️ HERRAMIENTAS UTILIZADAS:\n")
+            f.write("-" * 80 + "\n")
+            for i, tool in enumerate(response.tools_used, 1):
+                f.write(f"{i}. {tool}\n")
         
-        f.write("\n" + "=" * 50 + "\n")
+        f.write("\n" + "=" * 80 + "\n")
 
 def _print_document_analysis(response: DocumentAnalysisResponse) -> None:
-    """Imprime un análisis de documento de forma legible"""
-    print("\n" + "=" * 50)
-    print(f"DOCUMENTO: {response.document_name}")
-    print("=" * 50)
-    print("\nRESUMEN:")
-    print(response.summary)
+    """Imprime un análisis de documento de forma estructurada"""
+    # Imprimir encabezado
+    print("\n" + "=" * 80)
+    print(f"📄 ANÁLISIS DE DOCUMENTO: {response.document_name}")
+    print("=" * 80)
     
+    # Imprimir resumen
+    print("\n📝 RESUMEN:")
+    print("-" * 80)
+    print(response.summary)
+    print("-" * 80)
+    
+    # Imprimir puntos clave
     if response.key_points:
-        print("\nPUNTOS CLAVE:")
+        print("\n🎯 PUNTOS CLAVE:")
+        print("-" * 80)
         for i, point in enumerate(response.key_points, 1):
             print(f"{i}. {point}")
     
+    # Imprimir entidades en una tabla
     if response.entities:
-        print("\nENTIDADES:")
+        print("\n🔍 ENTIDADES DETECTADAS:")
+        print("-" * 80)
+        entities_data = []
         for entity_type, entities in response.entities.items():
-            print(f"{entity_type}: {', '.join(entities)}")
+            entities_data.append([entity_type, ", ".join(entities)])
+        print(tabulate(
+            entities_data,
+            headers=["Tipo", "Entidades"],
+            tablefmt="grid"
+        ))
     
+    # Imprimir sentimiento
     if response.sentiment:
-        print(f"\nSENTIMIENTO: {response.sentiment}")
+        print("\n😊 ANÁLISIS DE SENTIMIENTO:")
+        print("-" * 80)
+        print(f"Sentimiento: {response.sentiment}")
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 80)
 
 def _save_document_analysis(response: DocumentAnalysisResponse, file_path: str) -> None:
-    """Guarda el análisis de documento en un archivo"""
+    """Guarda el análisis de documento en un archivo de forma estructurada"""
     with open(file_path, 'w', encoding='utf-8') as f:
-        f.write("=" * 50 + "\n")
-        f.write(f"DOCUMENTO: {response.document_name}\n")
-        f.write("=" * 50 + "\n\n")
-        f.write("RESUMEN:\n")
-        f.write(response.summary + "\n\n")
+        # Escribir encabezado
+        f.write("=" * 80 + "\n")
+        f.write(f"📄 ANÁLISIS DE DOCUMENTO: {response.document_name}\n")
+        f.write("=" * 80 + "\n\n")
         
+        # Escribir resumen
+        f.write("📝 RESUMEN:\n")
+        f.write("-" * 80 + "\n")
+        f.write(response.summary + "\n")
+        f.write("-" * 80 + "\n\n")
+        
+        # Escribir puntos clave
         if response.key_points:
-            f.write("PUNTOS CLAVE:\n")
+            f.write("🎯 PUNTOS CLAVE:\n")
+            f.write("-" * 80 + "\n")
             for i, point in enumerate(response.key_points, 1):
                 f.write(f"{i}. {point}\n")
             f.write("\n")
         
+        # Escribir entidades en una tabla
         if response.entities:
-            f.write("ENTIDADES:\n")
+            f.write("🔍 ENTIDADES DETECTADAS:\n")
+            f.write("-" * 80 + "\n")
+            entities_data = []
             for entity_type, entities in response.entities.items():
-                f.write(f"{entity_type}: {', '.join(entities)}\n")
-            f.write("\n")
+                entities_data.append([entity_type, ", ".join(entities)])
+            f.write(tabulate(
+                entities_data,
+                headers=["Tipo", "Entidades"],
+                tablefmt="grid"
+            ))
+            f.write("\n\n")
         
+        # Escribir sentimiento
         if response.sentiment:
-            f.write(f"SENTIMIENTO: {response.sentiment}\n\n")
+            f.write("😊 ANÁLISIS DE SENTIMIENTO:\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Sentimiento: {response.sentiment}\n\n")
         
-        f.write("=" * 50 + "\n")
+        f.write("=" * 80 + "\n")
 
 def _read_file_content(file_path: str, file_extension: str) -> Optional[str]:
     """Lee el contenido de un archivo según su extensión"""
